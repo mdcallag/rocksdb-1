@@ -3720,11 +3720,40 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
         l0_size += f->fd.GetFileSize();
       }
 
-      uint64_t base_bytes_max =
-          std::max(options.max_bytes_for_level_base, l0_size);
-      uint64_t base_bytes_min = static_cast<uint64_t>(
-          base_bytes_max / options.max_bytes_for_level_multiplier);
+      // TODO --handle options.max_bytes_for_level_multiplier;
 
+      uint64_t base_bytes_max = options.max_bytes_for_level_base;
+          // std::max(options.max_bytes_for_level_base, l0_size);
+      // uint64_t base_bytes_min = static_cast<uint64_t>(
+          // base_bytes_max / options.max_bytes_for_level_multiplier);
+
+      uint64_t cur_level_size = max_level_size;
+      int cur_level = num_levels_ - 1;
+
+      while (cur_level >= 1) {
+        level_max_bytes_[cur_level] = std::max(base_bytes_max, cur_level_size);
+        base_level_ = cur_level;
+        cur_level--;
+
+        if (cur_level_size <= base_bytes_max)
+          break;
+
+        cur_level_size = static_cast<uint64_t>(cur_level_size / options.max_bytes_for_level_multiplier);
+      }
+
+      // These are "extra" levels. Is there a way to GC them?
+      if (cur_level >= first_non_empty_level) {
+        ROCKS_LOG_INFO(ioptions.logger,
+                       "More existing levels in DB than needed: %d extra. ", cur_level - first_non_empty_level + 1);
+
+        while (cur_level >= first_non_empty_level) {
+          level_max_bytes_[cur_level] = base_bytes_max;
+          base_level_ = cur_level;
+          cur_level--;
+        }
+      }
+
+#ifdef mdc1
       // Try whether we can make last level's target size to be max_level_size
       uint64_t cur_level_size = max_level_size;
       for (int i = num_levels_ - 2; i >= first_non_empty_level; i--) {
@@ -3795,6 +3824,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
         // at the expense of L0, which may fill up and stall.
         level_max_bytes_[i] = std::max(level_size, base_bytes_max);
       }
+#endif
     }
   }
 }
